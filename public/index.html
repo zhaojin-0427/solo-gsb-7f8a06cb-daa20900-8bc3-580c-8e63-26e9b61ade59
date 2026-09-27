@@ -41,6 +41,37 @@
       <span id="status" role="status"></span>
     </div>
 
+    <section class="panel" id="preview-panel">
+      <div class="panel-head">
+        <h2>消息实例预览</h2>
+        <span class="hint">读取上方编辑区最新内容，不影响审计结果</span>
+      </div>
+      <div class="preview-controls">
+        <label>
+          消息键：
+          <select id="preview-key"></select>
+        </label>
+        <span id="preview-key-hint" class="hint"></span>
+      </div>
+      <textarea id="preview-values" rows="5" spellcheck="false"
+        placeholder='参数值 JSON，如 {"name":"小明","count":3,"start":"2026-09-27T10:00:00+08:00","gender":"female"}'></textarea>
+      <p class="hint preview-hint">
+        普通与 select 参数填字符串；number 与复数参数填有限数字；date / time 参数填带时区的 ISO 8601 字符串。
+      </p>
+      <div class="actions">
+        <button id="run-preview" class="primary" type="button">渲染预览</button>
+        <span id="preview-status" role="status"></span>
+      </div>
+      <div id="preview-results" class="table-wrap hidden">
+        <table id="preview-table">
+          <thead>
+            <tr><th>语言</th><th>实际文本</th><th>失败原因</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
     <section id="results" class="panel hidden">
       <div class="panel-head">
         <h2>审计结果</h2>

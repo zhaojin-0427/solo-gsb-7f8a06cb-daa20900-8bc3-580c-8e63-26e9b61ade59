@@ -135,6 +135,24 @@ td.detail { color: #374151; }
 .hidden { display: none !important; }
 .ok { color: #15803d; font-size: 15px; }
 
+/* 消息实例预览 */
+.preview-controls {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.preview-controls label { font-size: 14px; color: var(--muted); }
+.preview-controls select {
+  font: inherit; font-size: 13px; padding: 5px 8px; margin-left: 4px;
+  border: 1px solid var(--border); border-radius: 6px; background: #fff;
+  max-width: 460px;
+}
+.preview-hint { margin: 6px 0 10px; }
+#preview-status { font-size: 14px; color: var(--muted); }
+#preview-status.error { color: #b91c1c; }
+#preview-panel .actions { margin-bottom: 0; }
+#preview-results { margin-top: 14px; }
+td.preview-text { white-space: pre-wrap; word-break: break-word; }
+td.preview-error { color: #b91c1c; word-break: break-word; }
+
 footer {
   text-align: center; color: var(--muted); font-size: 13px; padding: 18px 0 28px;
 }

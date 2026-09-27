@@ -15,6 +15,14 @@ const tbody = document.querySelector('#findings tbody');
 const noFindingsEl = document.getElementById('no-findings');
 const filteredEmptyEl = document.getElementById('filtered-empty');
 
+const previewKeyEl = document.getElementById('preview-key');
+const previewKeyHintEl = document.getElementById('preview-key-hint');
+const previewValuesEl = document.getElementById('preview-values');
+const runPreviewBtn = document.getElementById('run-preview');
+const previewStatusEl = document.getElementById('preview-status');
+const previewResultsEl = document.getElementById('preview-results');
+const previewTbody = document.querySelector('#preview-table tbody');
+
 let typeLabels = {}; // 由服务端返回，未知类型兜底为原始代码
 let allFindings = [];
 
@@ -111,6 +119,14 @@ const EXAMPLE = {
       },
     },
   ],
+  previewValues: {
+    name: '小明',
+    gender: 'female',
+    count: 3,
+    start: '2026-09-27T10:00:00+08:00',
+    rank: 2,
+    used: 0.85,
+  },
 };
 
 exampleBtn.addEventListener('click', () => {
@@ -119,7 +135,10 @@ exampleBtn.addEventListener('click', () => {
   for (const t of EXAMPLE.translations) {
     addTranslation(t.lang, JSON.stringify(t.messages, null, 2));
   }
-  setStatus('已填入示例，点击「开始审计」查看结果。');
+  previewValuesEl.value = JSON.stringify(EXAMPLE.previewValues, null, 2);
+  refreshPreviewKeys();
+  previewKeyEl.value = 'inbox.summary';
+  setStatus('已填入示例，点击「开始审计」查看结果，或在「消息实例预览」中直接渲染。');
 });
 
 /* ---------- 审计请求与渲染 ---------- */
@@ -222,6 +241,95 @@ runBtn.addEventListener('click', async () => {
   }
 });
 
+/* ---------- 消息实例预览 ---------- */
+
+/** 从基准编辑区解析键列表，刷新预览下拉框（尽量保留当前选中） */
+function refreshPreviewKeys() {
+  const current = previewKeyEl.value;
+  let keys = [];
+  try {
+    const obj = JSON.parse(baselineEl.value);
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) keys = Object.keys(obj);
+  } catch {
+    keys = []; // 基准 JSON 暂时无效：下方给出提示
+  }
+
+  previewKeyEl.innerHTML = '';
+  if (!keys.length) {
+    previewKeyEl.disabled = true;
+    previewKeyHintEl.textContent = '基准 JSON 暂无可选消息键，请先粘贴合法的基准 JSON';
+    return;
+  }
+  for (const k of keys) {
+    const opt = document.createElement('option');
+    opt.value = k;
+    opt.textContent = k;
+    previewKeyEl.appendChild(opt);
+  }
+  previewKeyEl.disabled = false;
+  previewKeyHintEl.textContent = `共 ${keys.length} 个键（来自基准编辑区）`;
+  if (keys.includes(current)) previewKeyEl.value = current;
+}
+
+let refreshKeysTimer = null;
+baselineEl.addEventListener('input', () => {
+  clearTimeout(refreshKeysTimer);
+  refreshKeysTimer = setTimeout(refreshPreviewKeys, 300);
+});
+
+function setPreviewStatus(text, isError = false) {
+  previewStatusEl.textContent = text;
+  previewStatusEl.classList.toggle('error', isError);
+}
+
+runPreviewBtn.addEventListener('click', async () => {
+  if (!previewKeyEl.value) {
+    setPreviewStatus('请先在基准 JSON 中提供可选的消息键。', true);
+    return;
+  }
+  // 读取编辑区最新内容
+  const translations = [...translationsEl.querySelectorAll('.translation-block')].map((block) => ({
+    lang: block.querySelector('.lang-input').value,
+    messages: block.querySelector('textarea').value,
+  }));
+
+  setPreviewStatus('渲染中…');
+  runPreviewBtn.disabled = true;
+  try {
+    const resp = await fetch('/api/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseline: baselineEl.value,
+        key: previewKeyEl.value,
+        values: previewValuesEl.value,
+        translations,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      setPreviewStatus(data.error || '预览失败', true);
+      return;
+    }
+
+    const results = data.results || [];
+    previewTbody.innerHTML = results.map((r) => `
+      <tr>
+        <td>${escapeHtml(r.language)}</td>
+        <td class="preview-text">${r.error ? '' : escapeHtml(r.text)}</td>
+        <td class="preview-error">${r.error ? escapeHtml(r.error) : ''}</td>
+      </tr>`).join('');
+    previewResultsEl.classList.remove('hidden');
+    const okCount = results.filter((r) => !r.error).length;
+    setPreviewStatus(`完成：${results.length} 个语言中 ${okCount} 个渲染成功。`);
+  } catch (err) {
+    setPreviewStatus(`请求失败：${err.message}`, true);
+  } finally {
+    runPreviewBtn.disabled = false;
+  }
+});
+
 /* ---------- 初始化 ---------- */
 
 addTranslation();
+refreshPreviewKeys();
