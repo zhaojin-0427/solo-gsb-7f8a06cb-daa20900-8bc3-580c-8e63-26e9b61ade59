@@ -3,6 +3,7 @@
 const path = require('path');
 const express = require('express');
 const { audit, compareFindings, FINDING_TYPES } = require('./lib/audit');
+const { previewOne } = require('./lib/preview');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -70,6 +71,63 @@ app.post('/api/audit', (req, res) => {
   for (const f of findings) summary[f.type] = (summary[f.type] || 0) + 1;
 
   res.json({ findings, summary, types: FINDING_TYPES });
+});
+
+app.post('/api/preview', (req, res) => {
+  const { baseline, key, params, translations } = req.body || {};
+
+  if (typeof baseline !== 'string' || !baseline.trim()) {
+    return res.status(400).json({ error: '请粘贴基准消息 JSON' });
+  }
+
+  let baselineMessages;
+  try {
+    baselineMessages = parseJsonObject(baseline, '基准消息');
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  if (typeof key !== 'string' || !key) {
+    return res.status(400).json({ error: '请选择要预览的消息键' });
+  }
+  if (!Object.prototype.hasOwnProperty.call(baselineMessages, key)) {
+    return res.status(400).json({ error: `基准消息中不存在键「${key}」` });
+  }
+
+  // 参数值留空视为 {}（方便预览无参数的消息）
+  const paramsText = typeof params === 'string' ? params.trim() : '';
+  let paramValues = {};
+  if (paramsText) {
+    try {
+      paramValues = JSON.parse(paramsText);
+    } catch (err) {
+      return res.status(400).json({ error: `参数值不是合法的 JSON：${err.message}` });
+    }
+    if (!paramValues || typeof paramValues !== 'object' || Array.isArray(paramValues)) {
+      return res.status(400).json({ error: '参数值必须是平铺的 JSON 对象（参数名 → 值）' });
+    }
+  }
+
+  const rows = [];
+  (Array.isArray(translations) ? translations : []).slice(0, MAX_TRANSLATIONS).forEach((t, i) => {
+    const lang = String((t && t.lang) || '').trim() || `译文${i + 1}`;
+    const text = (t && typeof t.messages === 'string' ? t.messages : '').trim();
+    if (!text) return; // 空白块直接忽略
+    let messages;
+    try {
+      messages = parseJsonObject(text, `译文「${lang}」`);
+    } catch (err) {
+      rows.push({ language: lang, ok: false, error: err.message });
+      return;
+    }
+    rows.push(previewOne(lang, messages, key, paramValues));
+  });
+
+  if (!rows.length) {
+    return res.status(400).json({ error: '请至少填写一份译文 JSON 和语言代码' });
+  }
+
+  res.json({ rows });
 });
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));

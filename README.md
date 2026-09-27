@@ -1,8 +1,8 @@
 # ICU 多语言消息审计
 
-本地运行的多语言消息审计工具：粘贴一份基准和 1～4 份译文 JSON（均为**消息键 → ICU MessageFormat 字符串**的平铺对象），逐键比对并报告差异。数据不出本机。
+本地运行的多语言消息审计工具：粘贴一份基准和 1～4 份译文 JSON（均为**消息键 → ICU MessageFormat 字符串**的平铺对象），逐键比对并报告差异；还可以选键填参，按各译文语言**预览消息实例**的实际渲染效果。数据不出本机。
 
-技术栈：Node.js + Express + [`@formatjs/icu-messageformat-parser`](https://formatjs.github.io/docs/icu-messageformat-parser/)，前端为原生 HTML/CSS/JS，无构建步骤。
+技术栈：Node.js + Express + [`@formatjs/icu-messageformat-parser`](https://formatjs.github.io/docs/icu-messageformat-parser/)（审计解析）+ [`intl-messageformat`](https://formatjs.github.io/docs/intl-messageformat/)（实例渲染），前端为原生 HTML/CSS/JS，无构建步骤。
 
 ## 快速开始
 
@@ -40,6 +40,24 @@ npm start
 2. 为每份译文（1～4 份）填写**语言代码**（如 `zh-CN`、`ja`）并粘贴译文 JSON。
 3. 点击「开始审计」。也可以先点「填入示例」查看演示效果（示例数据同时存放在 `examples/` 目录）。
 4. 结果按**语言 → 消息键**排序，可用下拉框或点击统计徽章**按错误类型筛选**。
+5. （可选）在「消息实例预览」中从基准键里选一个消息键、填一份参数值 JSON，点击「生成预览」，即可看到该键在**各译文语言**下的实际渲染文本或失败原因。
+
+## 消息实例预览
+
+预览读取编辑区**最新内容**（基准、译文、参数值），渲染结果单独成表，**不会覆盖审计发现**。打开 **http://localhost:3000** 后操作：
+
+1. **消息键**：下拉框列出当前基准 JSON 的全部键（编辑基准后自动刷新，也可点「刷新键列表」）。
+2. **参数值 JSON**：平铺对象「参数名 → 值」，留空视为 `{}`。类型约定：
+   - 普通占位符、`select`：**字符串**；
+   - `number`、`plural`、`selectordinal`：**有限数字**；
+   - `date`、`time`：**带时区的 ISO 8601 字符串**（如 `2026-09-27T10:00:00+08:00`），渲染前转成日期。
+3. 点击「生成预览」，表格逐语言并排显示**语言、实际文本、失败原因**。
+
+预览规则：
+
+- 用 [`intl-messageformat`](https://formatjs.github.io/docs/intl-messageformat/) 渲染，支持普通占位符、`number`、`date`、`time`、`select`、`plural`、`selectordinal` 及任意嵌套分支；各语言使用**自身的复数规则**与数字、日期格式。
+- 只校验**实际走到的分支**：沿途参数缺值或类型不符会逐语言报错；未走到的分支不校验。
+- 缺失消息、无效语言代码、模板（语法）错误、译文 JSON 解析失败都**只影响对应语言**一行，其余语言照常渲染。
 
 ## 审计规则
 
@@ -68,10 +86,11 @@ npm start
 ## 项目结构
 
 ```
-├── server.js            # Express 服务：静态页面 + POST /api/audit
+├── server.js            # Express 服务：静态页面 + POST /api/audit + POST /api/preview
 ├── lib/audit.js         # 审计核心：ICU 解析、签名提取与比对
+├── lib/preview.js       # 预览核心：按参数值走实际分支校验并用 intl-messageformat 渲染
 ├── public/              # 原生前端（index.html / app.js / style.css）
-├── test/audit.test.js   # 单元测试（node:test）
+├── test/                # 单元测试（node:test）：audit.test.js / preview.test.js
 ├── examples/            # 示例基准与译文
 ├── Dockerfile
 └── docker-compose.yml
@@ -97,3 +116,19 @@ npm test
 ```
 
 响应：`{ findings: [{ language, key, type, detail }], summary: { <type>: <count> }, types: { <type>: 中文标签 } }`，`findings` 已按语言、键排序。
+
+`POST /api/preview`
+
+```json
+{
+  "baseline": "{\"a\":\"你好 {name}\"}",
+  "key": "a",
+  "params": "{\"name\":\"世界\"}",
+  "translations": [
+    { "lang": "ja", "messages": "{\"a\":\"こんにちは {name}\"}" }
+  ]
+}
+```
+
+- `key` 必须存在于基准 JSON；`params` 为参数值 JSON 文本（留空视为 `{}`）。
+- 响应：`{ rows: [{ language, ok, text? , error? }] }`，每个译文块一行；`ok` 为 `true` 时 `text` 是渲染结果，为 `false` 时 `error` 是该语言的失败原因。

@@ -14,6 +14,13 @@ const filterEl = document.getElementById('type-filter');
 const tbody = document.querySelector('#findings tbody');
 const noFindingsEl = document.getElementById('no-findings');
 const filteredEmptyEl = document.getElementById('filtered-empty');
+const previewKeyEl = document.getElementById('preview-key');
+const previewParamsEl = document.getElementById('preview-params');
+const previewBtn = document.getElementById('run-preview');
+const previewStatusEl = document.getElementById('preview-status');
+const previewResultsEl = document.getElementById('preview-results');
+const previewTbody = document.querySelector('#preview-table tbody');
+const refreshKeysBtn = document.getElementById('refresh-keys');
 
 let typeLabels = {}; // 由服务端返回，未知类型兜底为原始代码
 let allFindings = [];
@@ -113,12 +120,23 @@ const EXAMPLE = {
   ],
 };
 
+const EXAMPLE_PARAMS = {
+  name: '小明',
+  gender: 'female',
+  count: 3,
+  start: '2026-09-27T10:00:00+08:00',
+  rank: 2,
+  used: 0.75,
+};
+
 exampleBtn.addEventListener('click', () => {
   baselineEl.value = JSON.stringify(EXAMPLE.baseline, null, 2);
   translationsEl.innerHTML = '';
   for (const t of EXAMPLE.translations) {
     addTranslation(t.lang, JSON.stringify(t.messages, null, 2));
   }
+  previewParamsEl.value = JSON.stringify(EXAMPLE_PARAMS, null, 2);
+  refreshPreviewKeys();
   setStatus('已填入示例，点击「开始审计」查看结果。');
 });
 
@@ -222,6 +240,88 @@ runBtn.addEventListener('click', async () => {
   }
 });
 
+/* ---------- 消息实例预览 ---------- */
+
+function setPreviewStatus(text, isError = false) {
+  previewStatusEl.textContent = text;
+  previewStatusEl.classList.toggle('error', isError);
+}
+
+/** 从基准编辑区最新内容解析键列表，刷新预览下拉框（尽量保留当前选择） */
+function refreshPreviewKeys() {
+  const previous = previewKeyEl.value;
+  previewKeyEl.innerHTML = '';
+  let keys = [];
+  try {
+    const obj = JSON.parse(baselineEl.value);
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) keys = Object.keys(obj);
+  } catch {
+    keys = []; // 基准 JSON 暂时无效：只显示提示项
+  }
+  if (!keys.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '（基准 JSON 暂无可选键）';
+    previewKeyEl.appendChild(opt);
+    return;
+  }
+  for (const key of keys) {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = key;
+    previewKeyEl.appendChild(opt);
+  }
+  if (keys.includes(previous)) previewKeyEl.value = previous;
+}
+
+baselineEl.addEventListener('input', refreshPreviewKeys);
+refreshKeysBtn.addEventListener('click', refreshPreviewKeys);
+
+previewBtn.addEventListener('click', async () => {
+  const translations = [...translationsEl.querySelectorAll('.translation-block')].map((block) => ({
+    lang: block.querySelector('.lang-input').value,
+    messages: block.querySelector('textarea').value,
+  }));
+
+  setPreviewStatus('渲染中…');
+  previewBtn.disabled = true;
+  try {
+    const resp = await fetch('/api/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        baseline: baselineEl.value,
+        key: previewKeyEl.value,
+        params: previewParamsEl.value,
+        translations,
+      }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      setPreviewStatus(data.error || '预览失败', true);
+      return;
+    }
+
+    const rows = data.rows || [];
+    previewTbody.innerHTML = rows.map((r) => `
+      <tr>
+        <td>${escapeHtml(r.language)}</td>
+        ${r.ok
+          ? `<td class="rendered">${escapeHtml(r.text)}</td><td class="na">—</td>`
+          : `<td class="na">—</td><td class="fail">${escapeHtml(r.error)}</td>`}
+      </tr>`).join('');
+    previewResultsEl.classList.remove('hidden');
+    const okCount = rows.filter((r) => r.ok).length;
+    setPreviewStatus(`完成：${okCount}/${rows.length} 种语言渲染成功。`);
+    previewResultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (err) {
+    setPreviewStatus(`请求失败：${err.message}`, true);
+  } finally {
+    previewBtn.disabled = false;
+  }
+});
+
 /* ---------- 初始化 ---------- */
 
 addTranslation();
+refreshPreviewKeys();
